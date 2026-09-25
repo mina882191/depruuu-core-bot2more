@@ -1,0 +1,22 @@
+const express=require("express");
+const cors=require("cors");
+const {Client,GatewayIntentBits,ActivityType}=require("discord.js");
+const app=express(); app.use(cors()); app.use(express.json());
+const PORT=process.env.PORT||3000;
+const GUILD_ID=process.env.DISCORD_GUILD_ID||"1552632205740613692";
+const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildPresences]});
+let latestWelcome=null,ready=false;
+const statusOf=m=>m.presence?.status||"offline";
+const avatarOf=(m,size=256)=>m.user.displayAvatarURL({extension:"png",size});
+const sortByJoinDate=a=>a.sort((x,y)=>(x.joinedAt?.getTime()??Infinity)-(y.joinedAt?.getTime()??Infinity));
+function makeMember(m,n=null){return{id:m.id,username:m.user.username,displayName:m.displayName,globalName:m.user.globalName||null,avatar:avatarOf(m),status:statusOf(m),joinedAt:m.joinedAt?.toISOString()||null,memberNumber:n};}
+client.once("ready",async()=>{ready=true;console.log(`Logged in as ${client.user.tag}`);client.user.setActivity("DEPRUUU CORE",{type:ActivityType.Watching});try{const g=await client.guilds.fetch(GUILD_ID);await g.members.fetch();console.log(`Server: ${g.name} | Members: ${g.memberCount}`);}catch(e){console.error(e);}});
+client.on("guildMemberAdd",m=>{if(m.guild.id!==GUILD_ID)return;latestWelcome={id:m.id,username:m.user.username,displayName:m.displayName,avatar:avatarOf(m,512),joinedAt:new Date().toISOString()};console.log(`New member: ${m.user.tag} (${m.id})`);});
+client.on("guildMemberRemove",m=>{if(m.guild.id===GUILD_ID)console.log(`Member left: ${m.user.tag} (${m.id})`);});
+app.get("/",(q,s)=>s.json({ok:true,service:"DEPRUUU CORE Presence & Member API",ready,guildId:GUILD_ID}));
+app.get("/api/stats",async(q,s)=>{try{const g=await client.guilds.fetch(GUILD_ID);await g.members.fetch();const a=[...g.members.cache.values()],online=a.filter(m=>statusOf(m)==="online").length;s.json({ok:true,totalMembers:a.length,onlineCount:online,notOnlineCount:a.length-online});}catch(e){console.error(e);s.status(500).json({ok:false,error:"Failed to fetch Discord stats"});}});
+app.get("/api/members",async(q,s)=>{try{const g=await client.guilds.fetch(GUILD_ID);await g.members.fetch();const all=sortByJoinDate([...g.members.cache.values()]).map((m,i)=>makeMember(m,i+1));const x=String(q.query.q||"").trim().toLowerCase();const members=x?all.filter(m=>[m.displayName,m.username,m.globalName,m.id].filter(Boolean).some(v=>v.toLowerCase().includes(x))):all;s.json({ok:true,totalMembers:all.length,count:members.length,members});}catch(e){console.error(e);s.status(500).json({ok:false,error:"Failed to fetch Discord members"});}});
+app.get("/api/members/:id",async(q,s)=>{try{const g=await client.guilds.fetch(GUILD_ID);await g.members.fetch();const m=g.members.cache.get(q.params.id);if(!m)return s.status(404).json({ok:false,error:"Member not found"});const all=sortByJoinDate([...g.members.cache.values()]);s.json({ok:true,member:makeMember(m,all.findIndex(x=>x.id===m.id)+1)});}catch(e){console.error(e);s.status(500).json({ok:false,error:"Failed to fetch member"});}});
+app.get("/api/welcome",(q,s)=>s.json({ok:true,welcome:latestWelcome}));
+app.listen(PORT,()=>console.log(`API running on port ${PORT}`));
+client.login(process.env.DISCORD_TOKEN);
